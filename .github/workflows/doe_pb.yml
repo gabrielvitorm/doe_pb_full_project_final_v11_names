@@ -1,0 +1,66 @@
+name: DOE-PB Scraper
+
+on:
+  # Agendamento diário (UTC). Ajuste o horário se quiser.
+  schedule:
+    - cron: '5 12 * * 1-5'   # seg–sex 12:05 UTC (~09:05 BRT)
+  # Execução manual (permite escolher modo)
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'Modo de execução'
+        required: true
+        default: diario
+        type: choice
+        options: [diario, historico]
+
+concurrency:
+  group: doe-pb
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar Google Chrome (estável)
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Instalar dependências
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+
+      - name: Decidir modo (diário no agendado)
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "MODE=diario" >> $GITHUB_OUTPUT
+          else
+            echo "MODE=${{ github.event.inputs.modo }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Rodar scraper
+        run: |
+          source .venv/bin/activate
+          python main.py --modo ${{ steps.pick.outputs.MODE }} --headless
+
+      - name: Publicar artifacts (CSV + PDFs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: doe_pb_${{ steps.pick.outputs.MODE }}_${{ github.run_id }}
+          path: |
+            resultados_doe_pb.csv
+            downloads_doe_pb/**
+          retention-days: 30
